@@ -25,7 +25,7 @@ import {TextualCompletion} from './Components';
 import type {SelectionRange} from "./Autocompleter";
 
 const DDG_REGEX = /\/ddg\s+(.+)$/g;
-const REFERRER = 'vector';
+const REFERRER = 'chat.fabric.pub';
 
 export default class DuckDuckGoProvider extends AutocompleteProvider {
     constructor() {

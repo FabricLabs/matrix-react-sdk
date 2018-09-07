@@ -47,6 +47,7 @@ const eventTileTypes = {
 };
 
 const stateEventTileTypes = {
+    'm.room.create': 'messages.RoomCreate',
     'm.room.member': 'messages.TextualEvent',
     'm.room.name': 'messages.TextualEvent',
     'm.room.avatar': 'messages.RoomAvatarEvent',
@@ -324,6 +325,13 @@ module.exports = withMatrixClient(React.createClass({
         this.setState({menu: true});
     },
 
+    onReplyClicked: function(e) {
+        dis.dispatch({
+            action: 'reply_to_event',
+            event: this.props.mxEvent,
+        });
+    },
+
     toggleAllReadAvatars: function() {
         this.setState({
             allReadAvatars: !this.state.allReadAvatars,
@@ -483,7 +491,7 @@ module.exports = withMatrixClient(React.createClass({
         const eventType = this.props.mxEvent.getType();
 
         // Info messages are basically information about commands processed on a room
-        const isInfoMessage = (eventType !== 'm.room.message' && eventType !== 'm.sticker');
+        const isInfoMessage = (eventType !== 'm.room.message' && eventType !== 'm.sticker' && eventType != 'm.room.create');
 
         const tileHandler = getHandlerTile(this.props.mxEvent);
         // This shouldn't happen: the caller should check we support this type
@@ -535,6 +543,9 @@ module.exports = withMatrixClient(React.createClass({
         if (this.props.tileShape === "notif") {
             avatarSize = 24;
             needsSenderProfile = true;
+        } else if (tileHandler === 'messages.RoomCreate') {
+            avatarSize = 0;
+            needsSenderProfile = false;
         } else if (isInfoMessage) {
             // a small avatar, with no sender profile, for
             // joins/parts/etc
@@ -577,6 +588,10 @@ module.exports = withMatrixClient(React.createClass({
 
         const editButton = (
             <span className="mx_EventTile_editButton" title={_t("Options")} onClick={this.onEditClicked} />
+        );
+
+        const replyButton = (
+            <span className="mx_EventTile_replyButton" title={_t("Reply")} onClick={this.onReplyClicked} />
         );
 
         const timestamp = this.props.mxEvent.getTs() ?
@@ -717,6 +732,7 @@ module.exports = withMatrixClient(React.createClass({
                                            onWidgetLoad={this.props.onWidgetLoad} />
                             { keyRequestInfo }
                             { editButton }
+                            { replyButton }
                         </div>
                         {
                             // The avatar goes after the event tile as it's absolutly positioned to be over the
@@ -745,6 +761,8 @@ module.exports.haveTileForEvent = function(e) {
     if (handler === undefined) return false;
     if (handler === 'messages.TextualEvent') {
         return TextForEvent.textForEvent(e) !== '';
+    } else if (handler === 'messages.RoomCreate') {
+        return Boolean(e.getContent()['predecessor']);
     } else {
         return true;
     }
