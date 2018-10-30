@@ -23,6 +23,7 @@ var fs = require('fs');
 //
 var testFile = process.env.KARMA_TEST_FILE || 'test/all-tests.js';
 
+
 process.env.PHANTOMJS_BIN = 'node_modules/.bin/phantomjs';
 
 function fileExists(name) {
@@ -160,10 +161,9 @@ module.exports = function (config) {
 
         webpack: {
             module: {
-                loaders: [
-                    { test: /\.json$/, loader: "json" },
+                rules: [
                     {
-                        test: /\.js$/, loader: "babel",
+                        test: /\.js$/, loader: "babel-loader",
                         include: [path.resolve('./src'),
                                   path.resolve('./test'),
                                  ]
@@ -199,10 +199,24 @@ module.exports = function (config) {
 
                     'matrix-react-sdk': path.resolve('test/skinned-sdk.js'),
                     'sinon': 'sinon/pkg/sinon.js',
+
+                    // To make webpack happy
+                    // Related: https://github.com/request/request/issues/1529
+                    // (there's no mock available for fs, so we fake a mock by using
+                    // an in-memory version of fs)
+                    "fs": "memfs",
                 },
-                root: [
+                modules: [
                     path.resolve('./test'),
+                    "node_modules"
                 ],
+            },
+            node: {
+                // Because webpack is made of fail
+                // https://github.com/request/request/issues/1529
+                // Note: 'mock' is the new 'empty'
+                net: 'mock',
+                tls: 'mock'
             },
             devtool: 'inline-source-map',
             externals: {
@@ -210,6 +224,8 @@ module.exports = function (config) {
                 // (the 'commonjs' here means it will output a 'require')
                 "electron": "commonjs electron",
             },
+            // make sure we're flagged as development to avoid wasting time optimising
+            mode: 'development',
         },
 
         webpackMiddleware: {

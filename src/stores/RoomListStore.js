@@ -23,7 +23,6 @@ import Unread from '../Unread';
  * the RoomList.
  */
 class RoomListStore extends Store {
-
     static _listOrders = {
         "m.favourite": "manual",
         "im.vector.fake.invite": "recent",
@@ -120,8 +119,7 @@ class RoomListStore extends Store {
                 this._generateRoomLists();
             }
             break;
-            case 'MatrixActions.RoomMember.membership': {
-                if (!this._matrixClient || payload.member.userId !== this._matrixClient.credentials.userId) break;
+            case 'MatrixActions.Room.myMembership': {
                 this._generateRoomLists();
             }
             break;
@@ -215,8 +213,6 @@ class RoomListStore extends Store {
                 }
             } else if (membership === "leave") {
                 lists["im.vector.fake.archived"].push(room);
-            } else {
-                console.error("unrecognised membership: " + membership + " - this should never happen");
             }
         });
 
