@@ -17,13 +17,13 @@ import {Store} from 'flux/utils';
 import dis from '../dispatcher';
 import DMRoomMap from '../utils/DMRoomMap';
 import Unread from '../Unread';
+import SettingsStore from "../settings/SettingsStore";
 
 /**
  * A class for storing application state for categorising rooms in
  * the RoomList.
  */
 class RoomListStore extends Store {
-
     static _listOrders = {
         "m.favourite": "manual",
         "im.vector.fake.invite": "recent",
@@ -54,6 +54,24 @@ class RoomListStore extends Store {
                 "im.vector.fake.archived": [],
             },
             ready: false,
+
+            // The room cache stores a mapping of roomId to cache record.
+            // Each cache record is a key/value pair for various bits of
+            // data used to sort the room list. Currently this stores the
+            // following bits of informations:
+            //   "timestamp":     number, The timestamp of the last relevant
+            //                    event in the room.
+            //   "notifications": boolean, Whether or not the user has been
+            //                    highlighted on any unread events.
+            //   "unread":        boolean, Whether or not the user has any
+            //                    unread events.
+            //
+            // All of the cached values are lazily loaded on read in the
+            // recents comparator. When an event is received for a particular
+            // room, all the cached values are invalidated - forcing the
+            // next read to set new values. The entries do not expire on
+            // their own.
+            roomCache: {},
         };
     }
 
@@ -85,6 +103,8 @@ class RoomListStore extends Store {
                     !payload.isLiveUnfilteredRoomTimelineEvent ||
                     !this._eventTriggersRecentReorder(payload.event)
                 ) break;
+
+                this._clearCachedRoomState(payload.event.getRoomId());
                 this._generateRoomLists();
             }
             break;
@@ -112,6 +132,8 @@ class RoomListStore extends Store {
                 if (liveTimeline !== eventTimeline ||
                     !this._eventTriggersRecentReorder(payload.event)
                 ) break;
+
+                this._clearCachedRoomState(payload.event.getRoomId());
                 this._generateRoomLists();
             }
             break;
@@ -120,8 +142,14 @@ class RoomListStore extends Store {
                 this._generateRoomLists();
             }
             break;
-            case 'MatrixActions.RoomMember.membership': {
-                if (!this._matrixClient || payload.member.userId !== this._matrixClient.credentials.userId) break;
+            case 'MatrixActions.Room.accountData': {
+                if (payload.event_type === 'm.fully_read') {
+                    this._clearCachedRoomState(payload.room.roomId);
+                    this._generateRoomLists();
+                }
+            }
+            break;
+            case 'MatrixActions.Room.myMembership': {
                 this._generateRoomLists();
             }
             break;
@@ -215,16 +243,21 @@ class RoomListStore extends Store {
                 }
             } else if (membership === "leave") {
                 lists["im.vector.fake.archived"].push(room);
-            } else {
-                console.error("unrecognised membership: " + membership + " - this should never happen");
             }
         });
 
+        // Note: we check the settings up here instead of in the forEach or
+        // in the _recentsComparator to avoid hitting the SettingsStore a few
+        // thousand times.
+        const pinUnread = SettingsStore.getValue("pinUnreadRooms");
+        const pinMentioned = SettingsStore.getValue("pinMentionedRooms");
         Object.keys(lists).forEach((listKey) => {
             let comparator;
             switch (RoomListStore._listOrders[listKey]) {
                 case "recent":
-                    comparator = this._recentsComparator;
+                    comparator = (roomA, roomB) => {
+                        return this._recentsComparator(roomA, roomB, pinUnread, pinMentioned);
+                    };
                     break;
                 case "manual":
                 default:
@@ -238,6 +271,48 @@ class RoomListStore extends Store {
             lists,
             ready: true, // Ready to receive updates via Room.tags events
         });
+    }
+
+    _updateCachedRoomState(roomId, type, value) {
+        const roomCache = this._state.roomCache;
+        if (!roomCache[roomId]) roomCache[roomId] = {};
+
+        if (value) roomCache[roomId][type] = value;
+        else delete roomCache[roomId][type];
+
+        this._setState({roomCache});
+    }
+
+    _clearCachedRoomState(roomId) {
+        const roomCache = this._state.roomCache;
+        delete roomCache[roomId];
+        this._setState({roomCache});
+    }
+
+    _getRoomState(room, type) {
+        const roomId = room.roomId;
+        const roomCache = this._state.roomCache;
+        if (roomCache[roomId] && typeof roomCache[roomId][type] !== 'undefined') {
+            return roomCache[roomId][type];
+        }
+
+        if (type === "timestamp") {
+            const ts = this._tsOfNewestEvent(room);
+            this._updateCachedRoomState(roomId, "timestamp", ts);
+            return ts;
+        } else if (type === "unread-muted") {
+            const unread = Unread.doesRoomHaveUnreadMessages(room);
+            this._updateCachedRoomState(roomId, "unread-muted", unread);
+            return unread;
+        } else if (type === "unread") {
+            const unread = room.getUnreadNotificationCount() > 0;
+            this._updateCachedRoomState(roomId, "unread", unread);
+            return unread;
+        } else if (type === "notifications") {
+            const notifs = room.getUnreadNotificationCount("highlight") > 0;
+            this._updateCachedRoomState(roomId, "notifications", notifs);
+            return notifs;
+        } else throw new Error("Unrecognized room cache type: " + type);
     }
 
     _eventTriggersRecentReorder(ev) {
@@ -265,10 +340,53 @@ class RoomListStore extends Store {
         }
     }
 
-    _recentsComparator(roomA, roomB) {
-        // XXX: We could use a cache here and update it when we see new
-        // events that trigger a reorder
-        return this._tsOfNewestEvent(roomB) - this._tsOfNewestEvent(roomA);
+    _recentsComparator(roomA, roomB, pinUnread, pinMentioned) {
+        // We try and set the ordering to be Mentioned > Unread > Recent
+        // assuming the user has the right settings, of course.
+
+        const timestampA = this._getRoomState(roomA, "timestamp");
+        const timestampB = this._getRoomState(roomB, "timestamp");
+        const timestampDiff = timestampB - timestampA;
+
+        if (pinMentioned) {
+            const mentionsA = this._getRoomState(roomA, "notifications");
+            const mentionsB = this._getRoomState(roomB, "notifications");
+            if (mentionsA && !mentionsB) return -1;
+            if (!mentionsA && mentionsB) return 1;
+
+            // If they both have notifications, sort by timestamp.
+            // If neither have notifications (the fourth check not shown
+            // here), then try and sort by unread messages and finally by
+            // timestamp.
+            if (mentionsA && mentionsB) return timestampDiff;
+        }
+
+        if (pinUnread) {
+            let unreadA = this._getRoomState(roomA, "unread");
+            let unreadB = this._getRoomState(roomB, "unread");
+            if (unreadA && !unreadB) return -1;
+            if (!unreadA && unreadB) return 1;
+
+            // If they both have unread messages, sort by timestamp
+            // If nether have unread message (the fourth check not shown
+            // here), then just sort by timestamp anyways.
+            if (unreadA && unreadB) return timestampDiff;
+
+            // Unread can also mean "unread without badge", which is
+            // different from what the above checks for. We're also
+            // going to sort those here.
+            unreadA = this._getRoomState(roomA, "unread-muted");
+            unreadB = this._getRoomState(roomB, "unread-muted");
+            if (unreadA && !unreadB) return -1;
+            if (!unreadA && unreadB) return 1;
+
+            // If they both have unread messages, sort by timestamp
+            // If nether have unread message (the fourth check not shown
+            // here), then just sort by timestamp anyways.
+            if (unreadA && unreadB) return timestampDiff;
+        }
+
+        return timestampDiff;
     }
 
     _lexicographicalComparator(roomA, roomB) {

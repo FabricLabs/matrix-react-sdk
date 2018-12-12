@@ -16,14 +16,15 @@ limitations under the License.
 
 'use strict';
 
-var NotificationUtils = require('./NotificationUtils');
+const NotificationUtils = require('./NotificationUtils');
 
-var encodeActions = NotificationUtils.encodeActions;
+const encodeActions = NotificationUtils.encodeActions;
 
 module.exports = {
     ACTION_NOTIFY: encodeActions({notify: true}),
     ACTION_NOTIFY_DEFAULT_SOUND: encodeActions({notify: true, sound: "default"}),
     ACTION_NOTIFY_RING_SOUND: encodeActions({notify: true, sound: "ring"}),
+    ACTION_HIGHLIGHT: encodeActions({notify: true, highlight: true}),
     ACTION_HIGHLIGHT_DEFAULT_SOUND: encodeActions({notify: true, sound: "default", highlight: true}),
     ACTION_DONT_NOTIFY: encodeActions({notify: false}),
     ACTION_DISABLED: null,

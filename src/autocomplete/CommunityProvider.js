@@ -19,7 +19,7 @@ import React from 'react';
 import { _t } from '../languageHandler';
 import AutocompleteProvider from './AutocompleteProvider';
 import MatrixClientPeg from '../MatrixClientPeg';
-import FuzzyMatcher from './FuzzyMatcher';
+import QueryMatcher from './QueryMatcher';
 import {PillCompletion} from './Components';
 import sdk from '../index';
 import _sortBy from 'lodash/sortBy';
@@ -41,7 +41,7 @@ function score(query, space) {
 export default class CommunityProvider extends AutocompleteProvider {
     constructor() {
         super(COMMUNITY_REGEX);
-        this.matcher = new FuzzyMatcher([], {
+        this.matcher = new QueryMatcher([], {
             keys: ['groupId', 'name', 'shortDescription'],
         });
     }
@@ -61,7 +61,7 @@ export default class CommunityProvider extends AutocompleteProvider {
         if (command) {
             const joinedGroups = cli.getGroups().filter(({myMembership}) => myMembership === 'join');
 
-            const groups = (await Promise.all(joinedGroups.map(async ({groupId}) => {
+            const groups = (await Promise.all(joinedGroups.map(async({groupId}) => {
                 try {
                     return FlairStore.getGroupProfileCached(cli, groupId);
                 } catch (e) { // if FlairStore failed, fall back to just groupId

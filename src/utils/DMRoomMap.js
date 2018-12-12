@@ -93,7 +93,7 @@ export default class DMRoomMap {
                         return {userId, roomId};
                     }
                 }
-            }).filter((ids) => !!ids);  //filter out
+            }).filter((ids) => !!ids); //filter out
             // these are actually all legit self-chats
             // bail out
             if (!guessedUserIdsThatChanged.length) {
@@ -104,7 +104,7 @@ export default class DMRoomMap {
                     .some((ids) => ids.roomId === roomId);
             });
             guessedUserIdsThatChanged.forEach(({userId, roomId}) => {
-                let roomIds = userToRooms[userId];
+                const roomIds = userToRooms[userId];
                 if (!roomIds) {
                     userToRooms[userId] = [roomId];
                 } else {

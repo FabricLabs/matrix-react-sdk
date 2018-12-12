@@ -140,9 +140,9 @@ export default class BugReportDialog extends React.Component {
                             "not contain messages.",
                         ) }
                     </p>
-                    <p>
+                    <p><b>
                         { _t(
-                            "Grove bugs are tracked on GitHub: <a>create a GitHub issue</a>.",
+                            "Before submitting logs, you must <a>create a GitHub issue</a> to describe your problem.",
                             {},
                             {
                                 a: (sub) => <a
@@ -153,13 +153,13 @@ export default class BugReportDialog extends React.Component {
                                 </a>,
                             },
                         ) }
-                    </p>
+                    </b></p>
                     <div className="mx_BugReportDialog_field_container">
                         <label
                             htmlFor="mx_BugReportDialog_issueUrl"
                             className="mx_BugReportDialog_field_label"
                         >
-                            { _t("GitHub issue link:") }
+                            { _t("What GitHub issue are these logs for?") }
                         </label>
                         <input
                             id="mx_BugReportDialog_issueUrl"

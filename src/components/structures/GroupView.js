@@ -470,7 +470,7 @@ export default React.createClass({
         GroupStore.registerListener(groupId, this.onGroupStoreUpdated.bind(this, firstInit));
         let willDoOnboarding = false;
         // XXX: This should be more fluxy - let's get the error from GroupStore .getError or something
-        GroupStore.on('error', (err, errorGroupId) => {
+        GroupStore.on('error', (err, errorGroupId, stateKey) => {
             if (this._unmounted || groupId !== errorGroupId) return;
             if (err.errcode === 'M_GUEST_ACCESS_FORBIDDEN' && !willDoOnboarding) {
                 dis.dispatch({
@@ -483,11 +483,13 @@ export default React.createClass({
                 dis.dispatch({action: 'require_registration'});
                 willDoOnboarding = true;
             }
-            this.setState({
-                summary: null,
-                error: err,
-                editing: false,
-            });
+            if (stateKey === GroupStore.STATE_KEY.Summary) {
+                this.setState({
+                    summary: null,
+                    error: err,
+                    editing: false,
+                });
+            }
         });
     },
 
@@ -511,7 +513,6 @@ export default React.createClass({
             isUserMember: GroupStore.getGroupMembers(this.props.groupId).some(
                 (m) => m.userId === this._matrixClient.credentials.userId,
             ),
-            error: null,
         });
         // XXX: This might not work but this.props.groupIsNew unused anyway
         if (this.props.groupIsNew && firstInit) {
@@ -746,14 +747,38 @@ export default React.createClass({
         });
     },
 
+    _leaveGroupWarnings: function() {
+        const warnings = [];
+
+        if (this.state.isUserPrivileged) {
+            warnings.push((
+                <span className="warning">
+                    { " " /* Whitespace, otherwise the sentences get smashed together */ }
+                    { _t("You are an administrator of this community. You will not be " +
+                         "able to rejoin without an invite from another administrator.") }
+                </span>
+            ));
+        }
+
+        return warnings;
+    },
+
+
     _onLeaveClick: function() {
         const QuestionDialog = sdk.getComponent("dialogs.QuestionDialog");
+        const warnings = this._leaveGroupWarnings();
+
         Modal.createTrackedDialog('Leave Group', '', QuestionDialog, {
             title: _t("Leave Community"),
-            description: _t("Leave %(groupName)s?", {groupName: this.props.groupId}),
+            description: (
+                <span>
+                { _t("Leave %(groupName)s?", {groupName: this.props.groupId}) }
+                { warnings }
+                </span>
+            ),
             button: _t("Leave"),
-            danger: true,
-            onFinished: async (confirmed) => {
+            danger: this.state.isUserPrivileged,
+            onFinished: async(confirmed) => {
                 if (!confirmed) return;
 
                 this.setState({membershipBusy: true});
@@ -1133,7 +1158,7 @@ export default React.createClass({
 
         if (this.state.summaryLoading && this.state.error === null || this.state.saving) {
             return <Spinner />;
-        } else if (this.state.summary) {
+        } else if (this.state.summary && !this.state.error) {
             const summary = this.state.summary;
 
             let avatarNode;

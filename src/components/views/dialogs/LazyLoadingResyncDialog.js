@@ -1,5 +1,5 @@
 /*
-Copyright 2015, 2016 OpenMarket Ltd
+Copyright 2018 New Vector Ltd
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,25 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-'use strict';
-
 import React from 'react';
-import PropTypes from 'prop-types';
+import QuestionDialog from './QuestionDialog';
 import { _t } from '../../../languageHandler';
 
-module.exports = React.createClass({
-    displayName: 'CasLogin',
+export default (props) => {
+    const description =
+        _t("Riot now uses 3-5x less memory, by only loading information about other users"
+        + " when needed. Please wait whilst we resynchronise with the server!");
 
-    propTypes: {
-      onSubmit: PropTypes.func, // fn()
-    },
-
-    render: function() {
-        return (
-            <div>
-                <button onClick={this.props.onSubmit}>{ _t("Sign in with CAS") }</button>
-            </div>
-        );
-    },
-
-});
+    return (<QuestionDialog
+        hasCancelButton={false}
+        title={_t("Updating Riot")}
+        description={<div>{description}</div>}
+        button={_t("OK")}
+        onFinished={props.onFinished}
+    />);
+};

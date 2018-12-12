@@ -33,7 +33,6 @@ import Autocompleter from '../../../autocomplete/Autocompleter';
 const COMPOSER_SELECTED = 0;
 
 export default class Autocomplete extends React.Component {
-
     constructor(props) {
         super(props);
 
@@ -114,7 +113,7 @@ export default class Autocomplete extends React.Component {
 
     processQuery(query, selection) {
         return this.autocompleter.getCompletions(
-            query, selection, this.state.forceComplete
+            query, selection, this.state.forceComplete,
         ).then((completions) => {
             // Only ever process the completions for the most recent query being processed
             if (query !== this.queryRequested) {

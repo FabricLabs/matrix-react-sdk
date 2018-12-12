@@ -18,8 +18,9 @@ limitations under the License.
 
 import { _td } from '../languageHandler';
 
-var StandardActions = require('./StandardActions');
-var PushRuleVectorState = require('./PushRuleVectorState');
+const StandardActions = require('./StandardActions');
+const PushRuleVectorState = require('./PushRuleVectorState');
+const { decodeActions } = require('./NotificationUtils');
 
 class VectorPushRuleDefinition {
     constructor(opts) {
@@ -30,16 +31,14 @@ class VectorPushRuleDefinition {
 
     // Translate the rule actions and its enabled value into vector state
     ruleToVectorState(rule) {
-        var enabled = false;
-        var actions = null;
+        let enabled = false;
         if (rule) {
             enabled = rule.enabled;
-            actions = rule.actions;
         }
 
-        for (var stateKey in PushRuleVectorState.states) {
-            var state = PushRuleVectorState.states[stateKey];
-            var vectorStateToActions = this.vectorStateToActions[state];
+        for (const stateKey in PushRuleVectorState.states) { // eslint-disable-line guard-for-in
+            const state = PushRuleVectorState.states[stateKey];
+            const vectorStateToActions = this.vectorStateToActions[state];
 
             if (!vectorStateToActions) {
                 // No defined actions means that this vector state expects a disabled (or absent) rule
@@ -47,18 +46,24 @@ class VectorPushRuleDefinition {
                     return state;
                 }
             } else {
-                // The actions must match to the ones expected by vector state
-                if (enabled && JSON.stringify(rule.actions) === JSON.stringify(vectorStateToActions)) {
+                // The actions must match to the ones expected by vector state.
+                // Use `decodeActions` on both sides to canonicalize things like
+                // value: true vs. unspecified for highlight (which defaults to
+                // true, making them equivalent).
+                if (enabled &&
+                        JSON.stringify(decodeActions(rule.actions)) ===
+                        JSON.stringify(decodeActions(vectorStateToActions))) {
                     return state;
                 }
             }
         }
 
-        console.error("Cannot translate rule actions into Vector rule state. Rule: " +
-                      JSON.stringify(rule));
+        console.error(`Cannot translate rule actions into Vector rule state. ` +
+            `Rule: ${JSON.stringify(rule)}, ` +
+            `Expected: ${JSON.stringify(this.vectorStateToActions)}`);
         return undefined;
     }
-};
+}
 
 /**
  * The descriptions of rules managed by the Vector UI.
@@ -71,8 +76,8 @@ module.exports = {
         vectorStateToActions: { // The actions for each vector state, or null to disable the rule.
             on: StandardActions.ACTION_NOTIFY,
             loud: StandardActions.ACTION_HIGHLIGHT_DEFAULT_SOUND,
-            off: StandardActions.ACTION_DISABLED
-        }
+            off: StandardActions.ACTION_DISABLED,
+        },
     }),
 
     // Messages containing user's username (localpart/MXID)
@@ -82,8 +87,19 @@ module.exports = {
         vectorStateToActions: { // The actions for each vector state, or null to disable the rule.
             on: StandardActions.ACTION_NOTIFY,
             loud: StandardActions.ACTION_HIGHLIGHT_DEFAULT_SOUND,
-            off: StandardActions.ACTION_DISABLED
-        }
+            off: StandardActions.ACTION_DISABLED,
+        },
+    }),
+
+    // Messages containing @room
+    ".m.rule.roomnotif": new VectorPushRuleDefinition({
+        kind: "override",
+        description: _td("Messages containing @room"), // passed through _t() translation in src/components/views/settings/Notifications.js
+        vectorStateToActions: { // The actions for each vector state, or null to disable the rule.
+            on: StandardActions.ACTION_NOTIFY,
+            loud: StandardActions.ACTION_HIGHLIGHT,
+            off: StandardActions.ACTION_DISABLED,
+        },
     }),
 
     // Messages just sent to the user in a 1:1 room
@@ -93,8 +109,19 @@ module.exports = {
         vectorStateToActions: {
             on: StandardActions.ACTION_NOTIFY,
             loud: StandardActions.ACTION_NOTIFY_DEFAULT_SOUND,
-            off: StandardActions.ACTION_DONT_NOTIFY
-        }
+            off: StandardActions.ACTION_DONT_NOTIFY,
+        },
+    }),
+
+    // Encrypted messages just sent to the user in a 1:1 room
+    ".m.rule.encrypted_room_one_to_one": new VectorPushRuleDefinition({
+        kind: "underride",
+        description: _td("Encrypted messages in one-to-one chats"), // passed through _t() translation in src/components/views/settings/Notifications.js
+        vectorStateToActions: {
+            on: StandardActions.ACTION_NOTIFY,
+            loud: StandardActions.ACTION_NOTIFY_DEFAULT_SOUND,
+            off: StandardActions.ACTION_DONT_NOTIFY,
+        },
     }),
 
     // Messages just sent to a group chat room
@@ -106,8 +133,21 @@ module.exports = {
         vectorStateToActions: {
             on: StandardActions.ACTION_NOTIFY,
             loud: StandardActions.ACTION_NOTIFY_DEFAULT_SOUND,
-            off: StandardActions.ACTION_DONT_NOTIFY
-        }
+            off: StandardActions.ACTION_DONT_NOTIFY,
+        },
+    }),
+
+    // Encrypted messages just sent to a group chat room
+    // Encrypted 1:1 room messages are catched by the .m.rule.encrypted_room_one_to_one rule if any defined
+    // By opposition, all other room messages are from group chat rooms.
+    ".m.rule.encrypted": new VectorPushRuleDefinition({
+        kind: "underride",
+        description: _td("Encrypted messages in group chats"), // passed through _t() translation in src/components/views/settings/Notifications.js
+        vectorStateToActions: {
+            on: StandardActions.ACTION_NOTIFY,
+            loud: StandardActions.ACTION_NOTIFY_DEFAULT_SOUND,
+            off: StandardActions.ACTION_DONT_NOTIFY,
+        },
     }),
 
     // Invitation for the user
@@ -117,8 +157,8 @@ module.exports = {
         vectorStateToActions: {
             on: StandardActions.ACTION_NOTIFY,
             loud: StandardActions.ACTION_NOTIFY_DEFAULT_SOUND,
-            off: StandardActions.ACTION_DISABLED
-        }
+            off: StandardActions.ACTION_DISABLED,
+        },
     }),
 
     // Incoming call
@@ -128,8 +168,8 @@ module.exports = {
         vectorStateToActions: {
             on: StandardActions.ACTION_NOTIFY,
             loud: StandardActions.ACTION_NOTIFY_RING_SOUND,
-            off: StandardActions.ACTION_DISABLED
-        }
+            off: StandardActions.ACTION_DISABLED,
+        },
     }),
 
     // Notifications from bots
@@ -141,6 +181,6 @@ module.exports = {
             on: StandardActions.ACTION_DISABLED,
             loud: StandardActions.ACTION_NOTIFY_DEFAULT_SOUND,
             off: StandardActions.ACTION_DONT_NOTIFY,
-        }
+        },
     }),
 };

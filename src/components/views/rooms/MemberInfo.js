@@ -41,6 +41,7 @@ import withMatrixClient from '../../../wrappers/withMatrixClient';
 import AccessibleButton from '../elements/AccessibleButton';
 import RoomViewStore from '../../../stores/RoomViewStore';
 import SdkConfig from '../../../SdkConfig';
+import MultiInviter from "../../../utils/MultiInviter";
 
 module.exports = withMatrixClient(React.createClass({
     displayName: 'MemberInfo',
@@ -712,14 +713,20 @@ module.exports = withMatrixClient(React.createClass({
 
             if (!member || !member.membership || member.membership === 'leave') {
                 const roomId = member && member.roomId ? member.roomId : RoomViewStore.getRoomId();
-                const onInviteUserButton = async () => {
+                const onInviteUserButton = async() => {
                     try {
-                        await cli.invite(roomId, member.userId);
+                        // We use a MultiInviter to re-use the invite logic, even though
+                        // we're only inviting one user.
+                        const inviter = new MultiInviter(roomId);
+                        await inviter.invite([member.userId]).then(() => {
+                            if (inviter.getCompletionState(userId) !== "invited")
+                                throw new Error(inviter.getErrorText(userId));
+                        });
                     } catch (err) {
                         const ErrorDialog = sdk.getComponent('dialogs.ErrorDialog');
                         Modal.createTrackedDialog('Failed to invite', '', ErrorDialog, {
                             title: _t('Failed to invite'),
-                            description: ((err && err.message) ? err.message : "Operation failed"),
+                            description: ((err && err.message) ? err.message : _t("Operation failed")),
                         });
                     }
                 };
@@ -777,7 +784,7 @@ module.exports = withMatrixClient(React.createClass({
                     const myMembership = room.getMyMembership();
                     // not a DM room if we have are not joined
                     if (myMembership !== 'join') continue;
-                    
+
                     const them = this.props.member;
                     // not a DM room if they are not joined
                     if (!them.membership || them.membership !== 'join') continue;
@@ -935,7 +942,7 @@ module.exports = withMatrixClient(React.createClass({
             <div className="mx_MemberInfo">
                 <GeminiScrollbarWrapper autoshow={true}>
                     <AccessibleButton className="mx_MemberInfo_cancel" onClick={this.onCancel}>
-                        <img src="img/cancel.svg" width="18" height="18" className="mx_filterFlipColor" />
+                        <img src="img/cancel.svg" width="18" height="18" className="mx_filterFlipColor" alt={_t('Close')} />
                     </AccessibleButton>
                     <div className="mx_MemberInfo_avatar">
                         <MemberAvatar onClick={this.onMemberAvatarClick} member={this.props.member} width={48} height={48} />

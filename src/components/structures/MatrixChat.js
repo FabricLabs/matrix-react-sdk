@@ -48,6 +48,10 @@ import SettingsStore, {SettingLevel} from "../../settings/SettingsStore";
 import { startAnyRegistrationFlow } from "../../Registration.js";
 import { messageForSyncError } from '../../utils/ErrorUtils';
 
+// Disable warnings for now: we use deprecated bluebird functions
+// and need to migrate, but they spam the console with warnings.
+Promise.config({warnings: false});
+
 /** constants for MatrixChat.state.view */
 const VIEWS = {
     // a special initial state which is only used at startup, while we are
@@ -200,8 +204,6 @@ export default React.createClass({
             return this.state.register_hs_url;
         } else if (MatrixClientPeg.get()) {
             return MatrixClientPeg.get().getHomeserverUrl();
-        } else if (window.localStorage && window.localStorage.getItem("mx_hs_url")) {
-            return window.localStorage.getItem("mx_hs_url");
         } else {
             return this.getDefaultHsUrl();
         }
@@ -220,8 +222,6 @@ export default React.createClass({
             return this.state.register_is_url;
         } else if (MatrixClientPeg.get()) {
             return MatrixClientPeg.get().getIdentityServerUrl();
-        } else if (window.localStorage && window.localStorage.getItem("mx_is_url")) {
-            return window.localStorage.getItem("mx_is_url");
         } else {
             return this.getDefaultIsUrl();
         }
@@ -284,6 +284,14 @@ export default React.createClass({
             console.log('Setting register_hs_url ', paramHs);
             this.setState({
                 register_hs_url: paramHs,
+            });
+        }
+        // Set a default IS with query param `is_url`
+        const paramIs = this.props.startingFragmentQueryParams.is_url;
+        if (paramIs) {
+            console.log('Setting register_is_url ', paramIs);
+            this.setState({
+                register_is_url: paramIs,
             });
         }
 
@@ -828,6 +836,7 @@ export default React.createClass({
             page_type: PageTypes.RoomView,
             thirdPartyInvite: roomInfo.third_party_invite,
             roomOobData: roomInfo.oob_data,
+            viaServers: roomInfo.via_servers,
         };
 
         if (roomInfo.room_alias) {
@@ -1022,6 +1031,7 @@ export default React.createClass({
                 { warnings }
                 </span>
             ),
+            button: _t("Leave"),
             onFinished: (shouldLeave) => {
                 if (shouldLeave) {
                     const d = MatrixClientPeg.get().leave(roomId);
@@ -1253,8 +1263,11 @@ export default React.createClass({
             // its own dispatch).
             dis.dispatch({action: 'sync_state', prevState, state});
 
-            if (state === "ERROR") {
-                self.setState({syncError: data.error});
+            if (state === "ERROR" || state === "RECONNECTING") {
+                if (data.error instanceof Matrix.InvalidStoreError) {
+                    Lifecycle.handleInvalidStoreError(data.error);
+                }
+                self.setState({syncError: data.error || true});
             } else if (self.state.syncError) {
                 self.setState({syncError: null});
             }
@@ -1358,6 +1371,7 @@ export default React.createClass({
         cli.on("crypto.roomKeyRequestCancellation", (req) => {
             krh.handleKeyRequestCancellation(req);
         });
+
         cli.on("Room", (room) => {
             if (MatrixClientPeg.get().isCryptoEnabled()) {
                 const blacklistEnabled = SettingsStore.getValueAt(
@@ -1388,6 +1402,11 @@ export default React.createClass({
                     break;
             }
         });
+
+        // Fire the tinter right on startup to ensure the default theme is applied
+        // A later sync can/will correct the tint to be the right value for the user
+        const colorScheme = SettingsStore.getValue("roomColor");
+        Tinter.tint(colorScheme.primary_color, colorScheme.secondary_color);
     },
 
     /**
@@ -1468,9 +1487,21 @@ export default React.createClass({
                 inviterName: params.inviter_name,
             };
 
+            // on our URLs there might be a ?via=matrix.org or similar to help
+            // joins to the room succeed. We'll pass these through as an array
+            // to other levels. If there's just one ?via= then params.via is a
+            // single string. If someone does something like ?via=one.com&via=two.com
+            // then params.via is an array of strings.
+            let via = [];
+            if (params.via) {
+                if (typeof(params.via) === 'string') via = [params.via];
+                else via = params.via;
+            }
+
             const payload = {
                 action: 'view_room',
                 event_id: eventId,
+                via_servers: via,
                 // If an event ID is given in the URL hash, notify RoomViewStore to mark
                 // it as highlighted, which will propagate to RoomView and highlight the
                 // associated EventTile.
@@ -1734,10 +1765,14 @@ export default React.createClass({
         }
 
         if (this.state.view === VIEWS.LOGGED_IN) {
+            // store errors stop the client syncing and require user intervention, so we'll
+            // be showing a dialog. Don't show anything else.
+            const isStoreError = this.state.syncError && this.state.syncError instanceof Matrix.InvalidStoreError;
+
             // `ready` and `view==LOGGED_IN` may be set before `page_type` (because the
             // latter is set via the dispatcher). If we don't yet have a `page_type`,
             // keep showing the spinner for now.
-            if (this.state.ready && this.state.page_type) {
+            if (this.state.ready && this.state.page_type && !isStoreError) {
                 /* for now, we stuff the entirety of our props and state into the LoggedInView.
                  * we should go through and figure out what we actually need to pass down, as well
                  * as using something like redux to avoid having a billion bits of state kicking around.
@@ -1759,7 +1794,7 @@ export default React.createClass({
                 // we think we are logged in, but are still waiting for the /sync to complete
                 const Spinner = sdk.getComponent('elements.Spinner');
                 let errorBox;
-                if (this.state.syncError) {
+                if (this.state.syncError && !isStoreError) {
                     errorBox = <div className="mx_MatrixChat_syncError">
                         {messageForSyncError(this.state.syncError)}
                     </div>;

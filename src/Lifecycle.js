@@ -31,6 +31,8 @@ import RtsClient from './RtsClient';
 import Modal from './Modal';
 import sdk from './index';
 import ActiveWidgetStore from './stores/ActiveWidgetStore';
+import PlatformPeg from "./PlatformPeg";
+import {sendLoginRequest} from "./Login";
 
 /**
  * Called at startup, to attempt to build a logged-in Matrix session. It tries
@@ -128,27 +130,17 @@ export function attemptTokenLogin(queryParams, defaultDeviceDisplayName) {
         return Promise.resolve(false);
     }
 
-    // create a temporary MatrixClient to do the login
-    const client = Matrix.createClient({
-        baseUrl: queryParams.homeserver,
-    });
-
-    return client.login(
+    return sendLoginRequest(
+        queryParams.homeserver,
+        queryParams.identityServer,
         "m.login.token", {
             token: queryParams.loginToken,
             initial_device_display_name: defaultDeviceDisplayName,
         },
-    ).then(function(data) {
+    ).then(function(creds) {
         console.log("Logged in with token");
         return _clearStorage().then(() => {
-            _persistCredentialsToLocalStorage({
-                userId: data.user_id,
-                deviceId: data.device_id,
-                accessToken: data.access_token,
-                homeserverUrl: queryParams.homeserver,
-                identityServerUrl: queryParams.identityServer,
-                guest: false,
-            });
+            _persistCredentialsToLocalStorage(creds);
             return true;
         });
     }).catch((err) => {
@@ -156,6 +148,40 @@ export function attemptTokenLogin(queryParams, defaultDeviceDisplayName) {
                       err.data);
         return false;
     });
+}
+
+export function handleInvalidStoreError(e) {
+    if (e.reason === Matrix.InvalidStoreError.TOGGLED_LAZY_LOADING) {
+        return Promise.resolve().then(() => {
+            const lazyLoadEnabled = e.value;
+            if (lazyLoadEnabled) {
+                const LazyLoadingResyncDialog =
+                    sdk.getComponent("views.dialogs.LazyLoadingResyncDialog");
+                return new Promise((resolve) => {
+                    Modal.createDialog(LazyLoadingResyncDialog, {
+                        onFinished: resolve,
+                    });
+                });
+            } else {
+                // show warning about simultaneous use
+                // between LL/non-LL version on same host.
+                // as disabling LL when previously enabled
+                // is a strong indicator of this (/develop & /app)
+                const LazyLoadingDisabledDialog =
+                    sdk.getComponent("views.dialogs.LazyLoadingDisabledDialog");
+                return new Promise((resolve) => {
+                    Modal.createDialog(LazyLoadingDisabledDialog, {
+                        onFinished: resolve,
+                        host: window.location.host,
+                    });
+                });
+            }
+        }).then(() => {
+            return MatrixClientPeg.get().store.deleteAllData();
+        }).then(() => {
+            PlatformPeg.get().reload();
+        });
+    }
 }
 
 function _registerAsGuest(hsUrl, isUrl, defaultDeviceDisplayName) {
@@ -471,16 +497,7 @@ function _clearStorage() {
     Analytics.logout();
 
     if (window.localStorage) {
-        const hsUrl = window.localStorage.getItem("mx_hs_url");
-        const isUrl = window.localStorage.getItem("mx_is_url");
         window.localStorage.clear();
-
-        // preserve our HS & IS URLs for convenience
-        // N.B. we cache them in hsUrl/isUrl and can't really inline them
-        // as getCurrentHsUrl() may call through to localStorage.
-        // NB. We do clear the device ID (as well as all the settings)
-        if (hsUrl) window.localStorage.setItem("mx_hs_url", hsUrl);
-        if (isUrl) window.localStorage.setItem("mx_is_url", isUrl);
     }
 
     // create a temporary client to clear out the persistent stores.
