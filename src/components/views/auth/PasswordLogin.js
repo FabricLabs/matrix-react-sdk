@@ -193,7 +193,7 @@ class PasswordLogin extends React.Component {
                     name="username" // make it a little easier for browser's remember-password
                     key="username_input"
                     type="text"
-                    label="Username on roleplaygateway.com"
+                    label="Your username here"
                     value={this.state.username}
                     onChange={this.onUsernameChanged}
                     onBlur={this.onUsernameBlur}
